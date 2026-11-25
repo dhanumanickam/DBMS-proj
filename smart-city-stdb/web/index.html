@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MetroPulse STDB — Smart City Traffic & Mobility Management</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Command Header -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-badge">ST</div>
+        <div>
+          <h1>MetroPulse STDB</h1>
+          <p class="subtitle">Spatio-Temporal Database &amp; Smart City Mobility Engine</p>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <span id="mode-pill" class="pill pill-live">● LIVE STREAM</span>
+        <span id="clock-display" class="clock-text">--:--:--</span>
+      </div>
+
+      <div class="header-actions">
+        <button id="btn-play-pause" class="btn btn-primary" title="Toggle live simulation">Pause Live</button>
+        <button id="btn-step" class="btn btn-secondary" title="Advance simulation by 8s">Step +8s</button>
+        <button id="btn-incident" class="btn btn-warn" title="Inject a traffic incident on a major road">Inject Incident</button>
+        <button id="btn-reset" class="btn btn-ghost" title="Regenerate 24h smart city dataset">Reset Data</button>
+      </div>
+    </header>
+
+    <!-- KPI Ribbon -->
+    <section class="kpi-strip">
+      <div class="kpi-card">
+        <span class="kpi-label">Active Vehicles</span>
+        <strong id="kpi-vehicles" class="kpi-value">--</strong>
+        <span class="kpi-sub" id="kpi-obs">0 trajectory logs</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">City Avg Speed</span>
+        <strong id="kpi-speed" class="kpi-value">-- km/h</strong>
+        <span class="kpi-sub" id="kpi-congested">0 congested</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">DBSCAN Hotspots</span>
+        <strong id="kpi-hotspots" class="kpi-value">--</strong>
+        <span class="kpi-sub" id="kpi-incidents">0 active incidents</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">V2X Handoffs</span>
+        <strong id="kpi-handoffs" class="kpi-value">--</strong>
+        <span class="kpi-sub" id="kpi-latency">avg -- ms latency</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Spatial Indexes</span>
+        <strong id="kpi-qt-cells" class="kpi-value">R-Tree + QT</strong>
+        <span class="kpi-sub" id="kpi-qt-sub">Quadtree + SQLite R*Tree</span>
+      </div>
+    </section>
+
+    <!-- Main Workspace -->
+    <main class="workspace">
+      <!-- Map Panel -->
+      <section class="map-panel">
+        <div class="map-toolbar">
+          <div class="tool-group">
+            <span class="group-label">Map Tool:</span>
+            <button class="tool-btn active" data-tool="inspect">Inspect</button>
+            <button class="tool-btn" data-tool="radius">Radius (R-Tree)</button>
+            <button class="tool-btn" data-tool="knn">k-NN (Quadtree)</button>
+            <label class="param-inline" id="radius-param-wrap">
+              R: <input id="input-radius" type="number" min="100" max="2000" step="50" value="450" />m
+            </label>
+            <label class="param-inline hidden" id="knn-param-wrap">
+              k: <input id="input-knn" type="number" min="1" max="25" step="1" value="6" />
+            </label>
+          </div>
+
+          <div class="tool-group">
+            <span class="group-label">Layers:</span>
+            <label class="toggle-chip"><input type="checkbox" id="layer-roads" checked /> Roads</label>
+            <label class="toggle-chip"><input type="checkbox" id="layer-towers" checked /> 5G/V2X Towers</label>
+            <label class="toggle-chip"><input type="checkbox" id="layer-dbscan" checked /> DBSCAN Hulls</label>
+            <label class="toggle-chip"><input type="checkbox" id="layer-gi" /> Gi* Heatmap</label>
+            <label class="toggle-chip"><input type="checkbox" id="layer-quadtree" /> Quadtree Grid</label>
+          </div>
+
+          <div class="tool-group zoom-controls">
+            <button id="btn-zoom-in" class="btn btn-icon" title="Zoom In">+</button>
+            <button id="btn-zoom-out" class="btn btn-icon" title="Zoom Out">−</button>
+            <button id="btn-zoom-reset" class="btn btn-icon" title="Reset View">⌖</button>
+          </div>
+        </div>
+
+        <div class="canvas-wrap">
+          <canvas id="city-canvas"></canvas>
+
+          <!-- Floating Legend -->
+          <div class="map-legend">
+            <div><span class="dot dot-fast"></span> Free Flow (&ge;35 km/h)</div>
+            <div><span class="dot dot-med"></span> Moderate (18–35 km/h)</div>
+            <div><span class="dot dot-slow"></span> Congested (&lt;18 km/h)</div>
+            <div><span class="dot dot-tower"></span> 5G-V2X Tower</div>
+          </div>
+
+          <!-- Selected Vehicle / Query Overlay Card -->
+          <div id="inspector-card" class="inspector-card hidden">
+            <div class="inspector-header">
+              <strong id="insp-title">Vehicle</strong>
+              <button id="insp-close" class="btn-close">&times;</button>
+            </div>
+            <div id="insp-body" class="inspector-body"></div>
+          </div>
+        </div>
+
+        <!-- Temporal Timeline Bar -->
+        <div class="timeline-bar">
+          <button id="btn-go-live" class="btn btn-sm btn-primary">Live</button>
+          <button id="btn-hist-play" class="btn btn-sm btn-secondary">Replay 24h</button>
+          <div class="slider-wrap">
+            <input id="time-slider" type="range" min="0" max="100" value="100" />
+            <div class="slider-labels">
+              <span id="ts-start">--:--</span>
+              <span id="ts-current">LIVE</span>
+              <span id="ts-end">--:--</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Sidebar -->
+      <aside class="sidebar">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="tab-spatial">Spatial &amp; Mining</button>
+          <button class="tab-btn" data-tab="tab-index">Index &amp; Temporal</button>
+          <button class="tab-btn" data-tab="tab-handoffs">Mobile Handoffs</button>
+        </div>
+
+        <!-- Tab 1: Spatial Queries & Data Mining -->
+        <div id="tab-spatial" class="tab-content active">
+          <div class="panel-box">
+            <div class="panel-head">
+              <h3>Spatial Query Output</h3>
+              <span class="badge" id="spatial-op-badge">Click Map</span>
+            </div>
+            <div id="spatial-query-result" class="muted-empty">
+              Select <strong>Radius (R-Tree)</strong> or <strong>k-NN (Quadtree)</strong> above and click anywhere on the city map.
+            </div>
+          </div>
+
+          <div class="panel-box">
+            <div class="panel-head">
+              <h3>DBSCAN Congestion Hotspots</h3>
+              <button id="btn-run-mining" class="btn btn-xs btn-secondary">Re-Mine</button>
+            </div>
+            <div id="hotspot-list" class="list-stack"></div>
+          </div>
+
+          <div class="panel-box">
+            <div class="panel-head">
+              <h3>Recurring Road Bottlenecks</h3>
+              <span class="badge">24h Mining</span>
+            </div>
+            <div id="bottleneck-list" class="list-stack"></div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Spatial Indexing Benchmark & Temporal Profile -->
+        <div id="tab-index" class="tab-content">
+          <div class="panel-box">
+            <div class="panel-head">
+              <h3>Spatial Index Benchmark</h3>
+              <button id="btn-run-bench" class="btn btn-xs btn-primary">Run Benchmark</button>
+            </div>
+            <p class="panel-desc">Executes 50 identical 450m radius queries across Linear Scan, In-Memory Quadtree, and SQLite R*Tree.</p>
+            <div id="benchmark-results" class="bench-box">
+              <div class="muted-empty">Click <strong>Run Benchmark</strong> to measure query speedup.</div>
+            </div>
+          </div>
+
+          <div class="panel-box">
+            <div class="panel-head">
+              <h3>24h Temporal Traffic Profile</h3>
+              <span class="badge">Hourly Avg</span>
+            </div>
+            <canvas id="hourly-chart" width="340" height="175"></canvas>
+            <div class="chart-caption">
+              <span><span class="dot dot-cyan"></span> Avg Speed (km/h)</span>
+              <span><span class="dot dot-slow"></span> Congestion %</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 3: Mobile Location & Handoff Management -->
+        <div id="tab-handoffs" class="tab-content">
+          <div class="panel-box">
+            <div class="panel-head">
+              <h3>5G-V2X Tower Load</h3>
+              <span class="badge">RSSI + Hysteresis</span>
+            </div>
+            <div id="tower-list" class="list-stack"></div>
+          </div>
+
+          <div class="panel-box">
+            <div class="panel-head">
+              <h3>Recent Handoff Events</h3>
+              <span class="badge" id="handoff-rate-badge">Live</span>
+            </div>
+            <div id="handoff-list" class="list-stack"></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
